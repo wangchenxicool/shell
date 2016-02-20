@@ -1,0 +1,50 @@
+#!/bin/sh
+# Copyright (C) 2006 OpenWrt.org
+
+usage() {
+	cat <<EOF
+Usage: $0 [down|detect|reload|status]
+enables (default), disables or detects a wifi configuration.
+EOF
+	exit 1
+}
+
+set_wifi_up() {
+	kill "$(cat /var/run/wifi-phy0.pid)"
+	sed -i s/^bssid=.*/bssid=d8:64:c7:5f:f1:c6/ /var/run/hostapd-phy0.conf
+	hostapd -P /var/run/wifi-phy0.pid -B /var/run/hostapd-phy0.conf
+
+	local cfg="$1"
+	local ifname="$2"
+	uci_set_state wireless "$cfg" up 1
+	uci_set_state wireless "$cfg" ifname "$ifname"
+}
+
+set_wifi_down() {
+	local cfg="$1"
+	local vifs vif vifstr
+
+	[ -f "/var/run/wifi-${cfg}.pid" ] &&
+		kill "$(cat "/var/run/wifi-${cfg}.pid")" 2>/dev/null
+	uci_revert_state wireless "$cfg"
+	config_get vifs "$cfg" vifs
+	for vif in $vifs; do
+		uci_revert_state wireless "$vif"
+	done
+}
+
+
+DEVICES=
+DRIVERS=
+include /lib/wifi
+scan_wifi
+
+case "$1" in
+	down) wifi_updown "disable" "$2";;
+	detect) wifi_detect "$2";;
+	status) ubus_wifi_cmd "status" "$2";;
+	reload) wifi_reload "$2";;
+	reload_legacy) wifi_reload_legacy "$2";;
+	--help|help) usage;;
+	*) ubus call network reload; wifi_updown "enable" "$2";;
+esac
